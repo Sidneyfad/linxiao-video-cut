@@ -306,7 +306,24 @@ function bindUI() {
   });
 
   stopBtn.addEventListener("click", () => {
-    ws?.send(JSON.stringify({ type: "interrupt" }));
+    if (!ws || ws.readyState !== 1) {
+      toast("连接已断开，无法中断。请等重连后重试。", "err");
+      return;
+    }
+    ws.send(JSON.stringify({ type: "interrupt" }));
+    // Visual feedback so the user knows the click registered
+    stopBtn.disabled = true;
+    stopBtn.textContent = "中断中…";
+    agentStatus.textContent = "正在中断 Claude…";
+    // Ultimate fallback: if server never sends result + UI stays busy 8s,
+    // force-reset on the client so the user can keep working.
+    setTimeout(() => {
+      if (busy) {
+        console.warn("[stop] no result within 8s, forcing UI reset");
+        setBusy(false);
+        toast("中断超时，已强制重置 UI。后台任务可能仍在跑。", "err");
+      }
+    }, 8000);
   });
 
   // Upload zone interactions
@@ -742,11 +759,15 @@ function setBusy(b) {
     agentStatus.textContent = "Claude 正在工作…";
     sendBtn.disabled = true;
     stopBtn.hidden = false;
+    stopBtn.disabled = false;
+    stopBtn.textContent = "停止";
   } else {
     agentStatus.classList.remove("busy");
     agentStatus.textContent = "";
     sendBtn.disabled = !inputEl.value.trim();
     stopBtn.hidden = true;
+    stopBtn.disabled = false;
+    stopBtn.textContent = "停止";
   }
 }
 

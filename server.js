@@ -222,7 +222,11 @@ function handleSocket(ws, sessionId) {
         }
       }
     } else if (msg.type === "interrupt") {
-      s.agent.interrupt();
+      console.log(`[ws ${s.id.slice(0,8)}] interrupt received from client`);
+      s.agent?.interrupt();
+      // Acknowledge immediately so the UI gives instant feedback even if the
+      // SDK takes time to actually wind the agent down.
+      ws.send(JSON.stringify({ type: "interrupt_ack" }));
     } else if (msg.type === "ping") {
       ws.send(JSON.stringify({ type: "pong" }));
     }

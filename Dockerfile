@@ -4,7 +4,9 @@
 # API directly via @anthropic-ai/sdk (pure HTTP) — no platform-specific
 # native binaries to wrangle. Slim base is fine again.
 
-FROM node:20-bookworm-slim
+# Node 22+ required: lib/agent.js uses fs/promises.glob() which was added
+# in Node 22.0. Sticking with 20 throws SyntaxError on import at startup.
+FROM node:22-bookworm-slim
 
 # System deps: ffmpeg for editing, python for the skill helpers, build tools
 # for native Python packages, curl for healthchecks.

@@ -202,8 +202,30 @@ button { font: inherit; }
 .upload-item .name {
   display: flex; justify-content: space-between; align-items: center;
   font-weight: 600;
+  gap: 8px;
+}
+.upload-item .name .fname {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.upload-item .name .actions {
+  display: flex; align-items: center; gap: 6px;
+  flex: 0 0 auto;
+  font-weight: normal;
 }
 .upload-item .pct { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.upload-item .cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  width: 18px; height: 18px;
+  font-size: 11px;
+  line-height: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+.upload-item .cancel-btn:hover { color: var(--bad); border-color: var(--bad); }
 .upload-item .bar { height: 4px; background: var(--bg); border-radius: 999px; margin-top: 6px; overflow: hidden; }
 .upload-item .bar > i { display: block; height: 100%; background: var(--accent); width: 0%; transition: width 0.2s; }
 .upload-item.done .bar > i { background: var(--good); }

@@ -1168,9 +1168,11 @@ function closeModal() {
 }
 
 // ---------- Upload (chunked) ----------
+// In-flight uploads, keyed by uploadId. Tracks AbortController + file so we
+// can cancel from the UI and warn the user before they navigate away.
+const activeUploads = new Map();
+
 async function handleFiles(files) {
-  // Snapshot the active session at drop-time so chunks always go to the right
-  // session even if the user switches mid-upload.
   const ownerSessionId = sessionId;
   if (!ownerSessionId) {
     alert("当前没有活跃会话");
@@ -1183,18 +1185,26 @@ async function handleFiles(files) {
     }
     uploadOne(f, ownerSessionId).catch((e) => {
       console.error(e);
-      alert(`上传失败: ${f.name}\n${e.message}`);
+      if (e?.name !== "AbortError") {
+        alert(`上传失败: ${f.name}\n${e.message}`);
+      }
     });
   }
 }
 
 async function uploadOne(file, ownerSessionId) {
   uploadProgress.hidden = false;
-  const item = renderUploadItem(file, ownerSessionId);
-
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const uploadId = crypto.randomUUID();
   const safeName = sanitizeFilename(file.name);
+  const controller = new AbortController();
+  const upload = { controller, file, ownerSessionId, uploadId, safeName, cancelled: false };
+  activeUploads.set(uploadId, upload);
+
+  const item = renderUploadItem(file, ownerSessionId, uploadId, () => {
+    upload.cancelled = true;
+    controller.abort();
+  });
 
   if (localFs.hasRoot()) {
     localFs.writeFile(ownerSessionId, safeName, file).catch((e) =>
@@ -1212,6 +1222,7 @@ async function uploadOne(file, ownerSessionId) {
     const blob = file.slice(start, end);
     let attempt = 0;
     while (true) {
+      if (upload.cancelled) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
       try {
         const res = await fetch(
           `/api/sessions/${ownerSessionId}/upload/${encodeURIComponent(safeName)}`,
@@ -1224,6 +1235,7 @@ async function uploadOne(file, ownerSessionId) {
               "X-Total-Chunks": String(totalChunks),
             },
             body: blob,
+            signal: controller.signal,
           }
         );
         if (!res.ok) {
@@ -1232,6 +1244,7 @@ async function uploadOne(file, ownerSessionId) {
         }
         return blob.size;
       } catch (e) {
+        if (e?.name === "AbortError" || upload.cancelled) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
         attempt++;
         if (attempt >= 3) throw e;
         await new Promise((r) => setTimeout(r, 500 * attempt));
@@ -1241,6 +1254,7 @@ async function uploadOne(file, ownerSessionId) {
 
   async function worker() {
     while (queue.length > 0) {
+      if (upload.cancelled) return;
       const idx = queue.shift();
       if (idx === undefined) return;
       const sz = await uploadChunkAt(idx);
@@ -1254,27 +1268,48 @@ async function uploadOne(file, ownerSessionId) {
     }
   }
 
-  // Don't spawn more workers than chunks
   const workerCount = Math.min(UPLOAD_PARALLELISM, totalChunks);
-  await Promise.all(Array.from({ length: workerCount }, worker));
-  item.done();
+  try {
+    await Promise.all(Array.from({ length: workerCount }, worker));
+    item.done();
+  } catch (e) {
+    if (e?.name === "AbortError" || upload.cancelled) {
+      item.cancelled();
+      // Tell server to clean up partial chunks so they don't squat disk
+      fetch(
+        `/api/sessions/${ownerSessionId}/upload/${encodeURIComponent(safeName)}/${uploadId}`,
+        { method: "DELETE" }
+      ).catch(() => {});
+    } else {
+      item.error(e?.message || "未知错误");
+      throw e;
+    }
+  } finally {
+    activeUploads.delete(uploadId);
+  }
 }
 
-function renderUploadItem(file, ownerSessionId) {
+function renderUploadItem(file, ownerSessionId, uploadId, onCancel) {
   const li = document.createElement("li");
   li.className = "upload-item";
   li.dataset.sessionId = ownerSessionId;
-  // Hide if the upload's owner is not the currently active session — keeps
-  // the visual scoped to the session the file actually goes into.
+  li.dataset.uploadId = uploadId;
   if (ownerSessionId !== sessionId) li.style.display = "none";
   li.innerHTML = `
     <div class="name">
-      <span></span>
-      <span class="pct">0%</span>
+      <span class="fname"></span>
+      <span class="actions">
+        <span class="pct">0%</span>
+        <button type="button" class="cancel-btn" title="取消上传">✕</button>
+      </span>
     </div>
     <div class="bar"><i></i></div>
   `;
-  li.querySelector(".name span").textContent = file.name;
+  li.querySelector(".fname").textContent = file.name;
+  li.querySelector(".cancel-btn").addEventListener("click", () => {
+    if (!confirm(`取消上传 "${file.name}"？已传部分会丢失。`)) return;
+    onCancel();
+  });
   uploadList.appendChild(li);
   return {
     update(pct, bytes, speed, eta) {
@@ -1286,6 +1321,7 @@ function renderUploadItem(file, ownerSessionId) {
     done() {
       li.classList.add("done");
       li.querySelector(".pct").textContent = "完成";
+      li.querySelector(".cancel-btn").remove();
       setTimeout(() => {
         li.remove();
         if (!uploadList.children.length) uploadProgress.hidden = true;
@@ -1294,9 +1330,27 @@ function renderUploadItem(file, ownerSessionId) {
     error(msg) {
       li.classList.add("error");
       li.querySelector(".pct").textContent = "失败 · " + msg;
+      li.querySelector(".cancel-btn").remove();
+    },
+    cancelled() {
+      li.classList.add("error");
+      li.querySelector(".pct").textContent = "已取消";
+      li.querySelector(".cancel-btn").remove();
+      setTimeout(() => {
+        li.remove();
+        if (!uploadList.children.length) uploadProgress.hidden = true;
+      }, 2500);
     },
   };
 }
+
+// Warn the user before they close / refresh / navigate away during an upload.
+window.addEventListener("beforeunload", (e) => {
+  if (activeUploads.size === 0) return;
+  e.preventDefault();
+  e.returnValue = `还有 ${activeUploads.size} 个上传在进行中，离开会丢失进度。`;
+  return e.returnValue;
+});
 
 // Re-scope the upload progress list to whatever session is now active.
 function updateUploadVisibility() {

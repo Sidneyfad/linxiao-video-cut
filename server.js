@@ -35,7 +35,7 @@ import {
   startCleanupSweep,
   invalidateAllAgents,
 } from "./lib/sessions.js";
-import { handleChunkUpload, streamFile } from "./lib/upload.js";
+import { handleChunkUpload, streamFile, cancelUpload } from "./lib/upload.js";
 import { AgentSession } from "./lib/agent.js";
 import { getRedactedSettings, updateSettings, logBootSummary, buildAgentEnvAndOptions } from "./lib/settings.js";
 
@@ -119,6 +119,12 @@ app.put("/api/sessions/:id/upload/:filename", async (req, res) => {
       res.status(500).json({ error: String(e.message || e) });
     }
   }
+});
+
+// Cancel in-progress upload — removes partial chunks
+app.delete("/api/sessions/:id/upload/:filename/:uploadId", (req, res) => {
+  const s = loadOrCreateSession(req.params.id);
+  cancelUpload(req, res, s);
 });
 
 // === File streaming (preview / download) ===

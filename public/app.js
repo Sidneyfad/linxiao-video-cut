@@ -635,12 +635,26 @@ function handleAgentEvent(ev) {
   if (ev.type === "result") {
     setBusy(false);
     if (ev.subtype !== "success") {
-      const detail = ev.result ? `\n\n${ev.result}` : "";
-      appendMessage("error", `任务结束（${ev.subtype || "error"}）${ev.api_error_status ? ` · HTTP ${ev.api_error_status}` : ""}${detail}`);
+      appendErrorResult(ev);
     }
     currentAssistantBubble = null;
     return;
   }
+}
+
+function appendErrorResult(ev) {
+  const wrap = document.createElement("div");
+  wrap.className = "message error";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const head = `<strong>任务结束（${escapeHtml(ev.subtype || "error")}）${ev.api_error_status ? ` · HTTP ${ev.api_error_status}` : ""}</strong>`;
+  const body = ev.result ? `<pre style="margin:6px 0;white-space:pre-wrap;font-family:inherit;font-size:13px">${escapeHtml(ev.result)}</pre>` : "";
+  // Always offer a clickable link to the SDK debug log so user can diagnose
+  const link = `<div style="margin-top:8px"><a href="/api/debug-log?tail=200000" target="_blank" rel="noopener" class="ghost-btn" style="font-size:12px;text-decoration:none">📋 查看 SDK 内部日志 (/api/debug-log)</a></div>`;
+  bubble.innerHTML = head + body + link;
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  scrollMessagesToBottom();
 }
 
 function appendStderrLine(line) {

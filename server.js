@@ -198,25 +198,56 @@ app.post("/api/settings/test", async (_req, res) => {
   }
 });
 
-// === Debug log dump ===
-// Returns the SDK's internal debug log, written to /tmp/sdk-debug.log.
-// Useful when an agent gets stuck and you need to see what the SDK is
-// doing internally (HTTP attempts, retry waits, payload sizes, etc).
+// === Diagnostic dump ===
+// Returns BOTH our agent-trace.log (what our code observed) and the SDK's
+// own sdk-debug.log (what the bundled CLI did internally). Without query
+// params, it picks the most-recently-active session. With ?id=<sessionId>
+// it picks that one.
 app.get("/api/debug-log", (req, res) => {
-  const p = "/tmp/sdk-debug.log";
-  if (!fs.existsSync(p)) {
-    res.status(404).send("(no debug log yet — send a message first)");
+  const sessions = listAllSessions();
+  const id = req.query.id || sessions[0]?.id;
+  if (!id) {
+    res.status(404).type("text/plain").send("(no sessions yet)");
     return;
   }
-  const stat = fs.statSync(p);
-  // For very long logs, support `?tail=N` to return the last N bytes
-  const tail = parseInt(req.query.tail || "", 10);
-  const start = (Number.isFinite(tail) && tail > 0 && tail < stat.size)
-    ? stat.size - tail
-    : 0;
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Content-Disposition", "inline");
-  fs.createReadStream(p, { start }).pipe(res);
+  const dir = path.join("sessions", id);
+  const tracePath = path.join(dir, "agent-trace.log");
+  const sdkPath = path.join(dir, "sdk-debug.log");
+  const sessionsDir = process.env.SESSIONS_DIR || "sessions";
+  const tracePathAbs = path.resolve(sessionsDir, id, "agent-trace.log");
+  const sdkPathAbs = path.resolve(sessionsDir, id, "sdk-debug.log");
+
+  const readSafe = (p, maxBytes = 100_000) => {
+    try {
+      if (!fs.existsSync(p)) return null;
+      const stat = fs.statSync(p);
+      const start = stat.size > maxBytes ? stat.size - maxBytes : 0;
+      const buf = Buffer.alloc(stat.size - start);
+      const fd = fs.openSync(p, "r");
+      fs.readSync(fd, buf, 0, buf.length, start);
+      fs.closeSync(fd);
+      return { size: stat.size, content: buf.toString("utf8") };
+    } catch (e) {
+      return { error: e.message };
+    }
+  };
+
+  const trace = readSafe(tracePathAbs, 200_000);
+  const sdk = readSafe(sdkPathAbs, 300_000);
+
+  res.type("text/plain; charset=utf-8");
+  res.send(
+    `=== Session ${id} ===\n` +
+    `\n--- agent-trace.log (our process's view) ---\n` +
+    (trace
+      ? (trace.error ? `ERROR: ${trace.error}` : `(${trace.size} bytes)\n${trace.content}`)
+      : "(file does not exist — agent never started, or session dir not writable)") +
+    `\n\n--- sdk-debug.log (SDK subprocess's internal log) ---\n` +
+    (sdk
+      ? (sdk.error ? `ERROR: ${sdk.error}` : `(${sdk.size} bytes)\n${sdk.content}`)
+      : "(file does not exist — SDK never reached its logging step)") +
+    `\n`
+  );
 });
 
 // === Health ===

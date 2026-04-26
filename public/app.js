@@ -621,6 +621,11 @@ function handleAgentEvent(ev) {
     return;
   }
 
+  if (ev.type === "retry_notice") {
+    appendRetryNotice(ev);
+    return;
+  }
+
   if (ev.type === "assistant") {
     setBusy(true);
     handleAssistantMessage(ev);
@@ -704,6 +709,30 @@ function updateHeartbeat(sinceSendMs) {
   if (!busy) return;
   const sec = Math.round(sinceSendMs / 1000);
   agentStatus.textContent = `Claude 正在工作… ${sec}s`;
+}
+
+function appendRetryNotice(ev) {
+  // Reuse a single retry-block that grows with each subsequent retry, so we
+  // don't spam a fresh bubble for every attempt.
+  let block = messagesEl.querySelector(".retry-block:last-of-type");
+  if (!block || block.dataset.closed === "1") {
+    const wrap = document.createElement("div");
+    wrap.className = "message retry-block";
+    wrap.innerHTML = `
+      <div class="bubble" style="background:rgba(255,181,71,0.08);border-color:rgba(255,181,71,0.4);color:var(--warn);font-size:12px">
+        <strong>API 重试中…</strong>
+        <ul class="retry-list" style="margin:4px 0 0;padding-left:18px;font-family:var(--mono);font-size:11px;list-style:disc"></ul>
+      </div>`;
+    messagesEl.appendChild(wrap);
+    block = wrap;
+  }
+  const list = block.querySelector(".retry-list");
+  const li = document.createElement("li");
+  const errorPart = ev.error ? ` — ${ev.error.message || ev.error}` : "";
+  const delayPart = ev.delayMs ? ` (下次 ${(ev.delayMs/1000).toFixed(1)}s 后重试)` : "";
+  li.textContent = `第 ${ev.attempt || "?"} 次${errorPart}${delayPart}`;
+  list.appendChild(li);
+  scrollMessagesToBottom();
 }
 
 function handleStreamEvent(ev) {

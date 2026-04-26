@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.local
+settings.json
+
+# Per-session user data — never commit
+sessions/
+
+# Vendored skill's local artifacts (rebuilt by setup script per host)
+vendor/video-use/.venv/
+vendor/video-use/build/
+vendor/video-use/*.egg-info/
+vendor/video-use/.git/
+
+*.log
+.DS_Store

@@ -1,0 +1,36 @@
+# Render.com one-click deploy.
+# Push to GitHub, connect repo at https://dashboard.render.com/select-repo,
+# Render auto-detects this file. Free plan works (sleeps 15 min after idle).
+services:
+  - type: web
+    name: linxiao-video-cut
+    runtime: docker
+    plan: free
+    region: singapore   # closest free region for CN team; change if you want
+    autoDeploy: true
+    healthCheckPath: /healthz
+    disk:
+      name: sessions
+      mountPath: /data
+      sizeGB: 1         # free plan limit
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NODE_ENV
+        value: production
+      - key: SESSION_TTL_MS
+        value: 86400000   # 24h, then idle session files purged
+      # The deployer fills these in the Render dashboard, not here, to keep
+      # secrets out of git. The app starts without them but chat/transcribe
+      # will fail until they are set; users can also fill them via the in-app
+      # settings panel after first load.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_AUTH_TOKEN
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        sync: false
+      - key: ANTHROPIC_MODEL
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false

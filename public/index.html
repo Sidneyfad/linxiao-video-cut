@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>视频对话剪辑</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <span class="title">视频对话剪辑</span>
+      <span class="subtitle">上传素材 · 对话即可剪辑</span>
+    </div>
+    <div class="session">
+      <span id="active-title" class="active-title" title="点击重命名"></span>
+      <span id="session-status" class="status status-idle">未连接</span>
+      <button id="folder-btn" class="ghost-btn" title="选择本地工作目录 — 所有文件会自动镜像到这里">📁 本地目录</button>
+      <button id="settings-btn" class="ghost-btn" title="模型与认证设置">⚙ 设置</button>
+    </div>
+  </header>
+
+  <!-- Settings modal -->
+  <div class="modal" id="settings-modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-body settings-modal-body">
+      <div class="modal-header">
+        <span>模型与认证设置</span>
+        <button class="ghost-btn" data-close>关闭</button>
+      </div>
+      <form class="modal-content settings-form" id="settings-form">
+        <p class="settings-hint">改完点保存即可。设置只对<strong>之后新建</strong>的会话生效；当前正在运行的会话保留旧配置直到结束。</p>
+
+        <fieldset>
+          <legend>认证（二选一）</legend>
+          <label>
+            <span>ANTHROPIC_API_KEY <em>（官方付费 key, sk-ant-api01-...）</em></span>
+            <input type="password" name="apiKey" autocomplete="off" placeholder="留空则用 Auth Token" />
+            <span class="hint" data-preview-for="apiKeyPreview"></span>
+          </label>
+          <label>
+            <span>ANTHROPIC_AUTH_TOKEN <em>（Bearer 风格 · 给 DeepSeek/OpenRouter/LiteLLM 这类代理）</em></span>
+            <input type="password" name="authToken" autocomplete="off" placeholder="留空则用 API Key" />
+            <span class="hint" data-preview-for="authTokenPreview"></span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>路由与模型</legend>
+          <label>
+            <span>ANTHROPIC_BASE_URL</span>
+            <input type="text" name="baseURL" placeholder="https://api.anthropic.com（默认）" />
+          </label>
+          <label>
+            <span>ANTHROPIC_MODEL</span>
+            <input type="text" name="model" placeholder="claude-opus-4-7（SDK 默认）" />
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>推理控制</legend>
+          <label>
+            <span>Effort（思考努力程度）</span>
+            <select name="effort">
+              <option value="">SDK 默认</option>
+              <option value="low">low — 最快，便宜</option>
+              <option value="medium">medium</option>
+              <option value="high">high — 默认</option>
+              <option value="xhigh">xhigh — 仅 Opus 4.7</option>
+              <option value="max">max — Opus 4.6/4.7</option>
+            </select>
+          </label>
+          <label>
+            <span>Thinking 模式</span>
+            <select name="thinking">
+              <option value="default">SDK 默认（Opus 自适应）</option>
+              <option value="adaptive">adaptive</option>
+              <option value="disabled">disabled — DeepSeek/不支持思考的代理推荐</option>
+              <option value="enabled:8000">enabled · 8K 预算</option>
+              <option value="enabled:16000">enabled · 16K 预算</option>
+              <option value="enabled:32000">enabled · 32K 预算</option>
+            </select>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>外部服务</legend>
+          <label>
+            <span>ELEVENLABS_API_KEY <em>（视频转写）</em></span>
+            <input type="password" name="elevenlabsKey" autocomplete="off" placeholder="转写需要" />
+            <span class="hint" data-preview-for="elevenlabsKeyPreview"></span>
+          </label>
+        </fieldset>
+
+        <div class="settings-actions">
+          <span id="settings-status"></span>
+          <button type="button" class="ghost-btn" data-close>取消</button>
+          <button type="submit" class="primary-btn">保存</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <main class="layout">
+    <!-- Sessions sidebar -->
+    <aside class="sessions-sidebar" id="sessions-sidebar">
+      <button id="new-session-btn" class="primary-btn full-width">+ 新建会话</button>
+      <ul class="sessions-list" id="sessions-list"></ul>
+    </aside>
+
+    <!-- Files panel -->
+    <aside class="files-panel">
+      <section class="upload-zone" id="upload-zone">
+        <input type="file" id="file-input" multiple accept="video/*,audio/*" hidden />
+        <div class="upload-inner">
+          <div class="upload-icon">⬆</div>
+          <div class="upload-text">
+            <strong>拖入视频文件</strong>
+            <span>或点击选择 · 单文件最大 10GB</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="upload-progress" id="upload-progress" hidden>
+        <h3>正在上传</h3>
+        <ul id="upload-list"></ul>
+      </section>
+
+      <section class="files-section">
+        <h3>源文件</h3>
+        <ul class="files-list" id="sources-list">
+          <li class="empty">暂无文件，先上传一段视频吧</li>
+        </ul>
+      </section>
+
+      <section class="files-section">
+        <h3>剪辑成果</h3>
+        <ul class="files-list" id="outputs-list">
+          <li class="empty">还没有产出，开始对话让 Claude 剪起来</li>
+        </ul>
+      </section>
+    </aside>
+
+    <!-- Right: chat panel -->
+    <section class="chat-panel">
+      <div class="messages" id="messages">
+        <div class="message system">
+          <div class="bubble">
+            <p>欢迎！这里是一个能像 Claude Code 一样剪视频的对话工具。先在左侧上传你的视频素材，然后告诉我你想要什么风格的成片。</p>
+            <p class="hint">例：<i>"把这几段剪成一个 60 秒的产品发布短视频，加 2 词大写字幕，warm cinematic 调色"</i></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer">
+        <div class="composer-status" id="agent-status"></div>
+        <div class="composer-row">
+          <textarea
+            id="composer-input"
+            placeholder="说出你的剪辑需求，按 Enter 发送，Shift+Enter 换行"
+            rows="2"
+          ></textarea>
+          <button id="send-btn" class="primary-btn" disabled>发送</button>
+          <button id="stop-btn" class="ghost-btn" hidden title="打断当前任务">停止</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Preview modal -->
+  <div class="modal" id="preview-modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-body">
+      <div class="modal-header">
+        <span id="preview-title">预览</span>
+        <div class="modal-actions">
+          <a id="preview-download" class="ghost-btn" download>下载</a>
+          <button class="ghost-btn" data-close>关闭</button>
+        </div>
+      </div>
+      <div class="modal-content" id="preview-content"></div>
+    </div>
+  </div>
+
+  <script src="./app.js" type="module"></script>
+</body>
+</html>

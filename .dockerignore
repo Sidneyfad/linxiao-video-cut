@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+sessions
+settings.json
+.env
+.env.local
+*.log
+.DS_Store
+vendor/video-use/.venv
+vendor/video-use/build
+vendor/video-use/*.egg-info
+vendor/video-use/.git
+README.md

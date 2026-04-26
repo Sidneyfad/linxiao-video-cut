@@ -1,0 +1,4 @@
+{
+  "$comment": "Vercel CANNOT run this app. Long-lived WebSockets, ffmpeg, Python venvs, and multi-minute renders don't work on serverless. Use Render.com / Railway / Fly.io with the included Dockerfile instead. This file exists only to document the incompatibility for anyone who tries `vercel deploy`.",
+  "buildCommand": "echo 'Vercel is not supported — see README. Deploy on Render with the included Dockerfile.' && exit 1"
+}

@@ -611,6 +611,16 @@ function handleAgentEvent(ev) {
     return;
   }
 
+  if (ev.type === "config_snapshot") {
+    appendConfigSnapshot(ev.config);
+    return;
+  }
+
+  if (ev.type === "heartbeat") {
+    updateHeartbeat(ev.sinceSendMs);
+    return;
+  }
+
   if (ev.type === "assistant") {
     setBusy(true);
     handleAssistantMessage(ev);
@@ -662,6 +672,24 @@ function appendAgentError(ev) {
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
   scrollMessagesToBottom();
+}
+
+function appendConfigSnapshot(cfg) {
+  if (!cfg) return;
+  const wrap = document.createElement("div");
+  wrap.className = "message system";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.innerHTML = `<small style="color:var(--text-dim)">→ 调用 <code>${escapeHtml(cfg.model)}</code> @ <code>${escapeHtml(cfg.baseURL)}</code> · 认证 ${escapeHtml(cfg.authMethod)} · thinking=${escapeHtml(cfg.thinking)}${cfg.effort ? ` · effort=${escapeHtml(cfg.effort)}` : ""}</small>`;
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  scrollMessagesToBottom();
+}
+
+function updateHeartbeat(sinceSendMs) {
+  if (!busy) return;
+  const sec = Math.round(sinceSendMs / 1000);
+  agentStatus.textContent = `Claude 正在工作… ${sec}s`;
 }
 
 function handleStreamEvent(ev) {

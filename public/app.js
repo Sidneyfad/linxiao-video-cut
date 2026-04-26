@@ -3,7 +3,8 @@
 
 import * as localFs from "./local-fs.js";
 
-const CHUNK_SIZE = 8 * 1024 * 1024; // 8MB chunks. 10GB / 8MB = 1280 PUTs max.
+const CHUNK_SIZE = 16 * 1024 * 1024; // 16MB chunks. 10GB / 16MB = 640 PUTs max.
+const UPLOAD_PARALLELISM = 4;        // chunks in flight at once (HTTP/2 multiplexed)
 const ACTIVE_KEY = "lvc.activeSessionId";
 
 const $ = (sel) => document.querySelector(sel);
@@ -891,6 +892,19 @@ function humanSize(bytes) {
   return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)}${u[i]}`;
 }
 
+function formatEta(seconds) {
+  seconds = Math.round(seconds);
+  if (seconds < 60) return `${seconds}秒`;
+  if (seconds < 3600) {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return s ? `${m}分${s}秒` : `${m}分`;
+  }
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  return m ? `${h}时${m}分` : `${h}时`;
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -976,19 +990,20 @@ async function uploadOne(file, ownerSessionId) {
   const uploadId = crypto.randomUUID();
   const safeName = sanitizeFilename(file.name);
 
-  // Local mirror also uses the OWNER session, not whichever session happens to
-  // be active when this code runs.
   if (localFs.hasRoot()) {
     localFs.writeFile(ownerSessionId, safeName, file).catch((e) =>
       console.warn("[local-fs] writeFile failed:", e)
     );
   }
 
-  for (let i = 0; i < totalChunks; i++) {
-    const start = i * CHUNK_SIZE;
+  const queue = Array.from({ length: totalChunks }, (_, i) => i);
+  let bytesUploaded = 0;
+  const startTime = Date.now();
+
+  async function uploadChunkAt(idx) {
+    const start = idx * CHUNK_SIZE;
     const end = Math.min(start + CHUNK_SIZE, file.size);
     const blob = file.slice(start, end);
-
     let attempt = 0;
     while (true) {
       try {
@@ -999,7 +1014,7 @@ async function uploadOne(file, ownerSessionId) {
             headers: {
               "Content-Type": "application/octet-stream",
               "X-Upload-Id": uploadId,
-              "X-Chunk-Index": String(i),
+              "X-Chunk-Index": String(idx),
               "X-Total-Chunks": String(totalChunks),
             },
             body: blob,
@@ -1009,16 +1024,33 @@ async function uploadOne(file, ownerSessionId) {
           const j = await res.json().catch(() => ({}));
           throw new Error(j.error || `HTTP ${res.status}`);
         }
-        break;
+        return blob.size;
       } catch (e) {
         attempt++;
         if (attempt >= 3) throw e;
         await new Promise((r) => setTimeout(r, 500 * attempt));
       }
     }
-    const pct = Math.round(((i + 1) / totalChunks) * 100);
-    item.update(pct, end);
   }
+
+  async function worker() {
+    while (queue.length > 0) {
+      const idx = queue.shift();
+      if (idx === undefined) return;
+      const sz = await uploadChunkAt(idx);
+      bytesUploaded += sz;
+      const elapsed = (Date.now() - startTime) / 1000;
+      const speed = elapsed > 0 ? bytesUploaded / elapsed : 0;
+      const remaining = file.size - bytesUploaded;
+      const eta = speed > 0 ? remaining / speed : 0;
+      const pct = Math.round((bytesUploaded / file.size) * 100);
+      item.update(pct, bytesUploaded, speed, eta);
+    }
+  }
+
+  // Don't spawn more workers than chunks
+  const workerCount = Math.min(UPLOAD_PARALLELISM, totalChunks);
+  await Promise.all(Array.from({ length: workerCount }, worker));
   item.done();
 }
 
@@ -1039,8 +1071,10 @@ function renderUploadItem(file, ownerSessionId) {
   li.querySelector(".name span").textContent = file.name;
   uploadList.appendChild(li);
   return {
-    update(pct, bytes) {
-      li.querySelector(".pct").textContent = `${pct}% · ${humanSize(bytes)}`;
+    update(pct, bytes, speed, eta) {
+      const speedTxt = speed ? ` · ${humanSize(speed)}/s` : "";
+      const etaTxt = eta && eta > 0 && Number.isFinite(eta) ? ` · 剩 ${formatEta(eta)}` : "";
+      li.querySelector(".pct").textContent = `${pct}% · ${humanSize(bytes)}${speedTxt}${etaTxt}`;
       li.querySelector(".bar > i").style.width = `${pct}%`;
     },
     done() {

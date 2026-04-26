@@ -81,6 +81,15 @@ def call_scribe(
             timeout=1800,
         )
 
+    if resp.status_code == 401:
+        raise RuntimeError(
+            "ElevenLabs Scribe rejected the API key (HTTP 401). "
+            "ELEVENLABS_API_KEY is invalid, revoked, or a placeholder. "
+            "Open the app's ⚙ Settings panel and paste a valid key from "
+            "https://elevenlabs.io/app/settings/api-keys . "
+            "DO NOT fall back to local Whisper — the skill forbids it "
+            "(SKILL.md anti-pattern: slow + normalizes fillers)."
+        )
     if resp.status_code != 200:
         raise RuntimeError(f"Scribe returned {resp.status_code}: {resp.text[:500]}")
 

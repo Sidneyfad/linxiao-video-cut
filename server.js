@@ -37,7 +37,7 @@ import {
 } from "./lib/sessions.js";
 import { handleChunkUpload, streamFile, cancelUpload } from "./lib/upload.js";
 import { AgentSession } from "./lib/agent.js";
-import { getRedactedSettings, updateSettings, logBootSummary, buildAgentEnvAndOptions } from "./lib/settings.js";
+import { getRedactedSettings, updateSettings, logBootSummary, buildAgentEnvAndOptions, getSettings, looksLikePlaceholder } from "./lib/settings.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -334,6 +334,32 @@ function handleSocket(ws, sessionId) {
     if (msg.type === "user" && typeof msg.text === "string" && msg.text.trim()) {
       const text = msg.text.trim();
       appendHistory(s, { kind: "user", text });
+
+      // Refuse upfront if elevenlabsKey is missing/placeholder. The skill
+      // requires hosted Scribe; without a valid key, weaker proxied models
+      // tend to "rationalize" a fall back to local Whisper (forbidden by
+      // SKILL.md anti-pattern). Stop before any tool turn is spent.
+      if (looksLikePlaceholder(getSettings().elevenlabsKey)) {
+        const errEvent = {
+          type: "result",
+          subtype: "config_error",
+          is_error: true,
+          api_error_status: null,
+          duration_ms: 0,
+          duration_api_ms: 0,
+          num_turns: 0,
+          result: "⚠️ 请先在「⚙ 设置」面板填入有效的 ElevenLabs API Key —— 当前是占位符或为空。\n\n转录依赖 hosted ElevenLabs Scribe，本应用不会降级到本地 Whisper（SKILL.md 反模式：slow + normalizes fillers）。\n\n申请 key：https://elevenlabs.io/app/settings/api-keys",
+          stop_reason: "config_error",
+          total_cost_usd: 0,
+          usage: {},
+          modelUsage: {},
+          permission_denials: [],
+        };
+        appendHistory(s, { kind: "agent", event: errEvent });
+        broadcast(s, { type: "agent", event: errEvent });
+        return;
+      }
+
       s.agent.send(text);
       // Auto-name a session from its first user message if still default-titled.
       if (s.title.startsWith("会话 ")) {

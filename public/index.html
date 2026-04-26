@@ -37,24 +37,39 @@
           <label>
             <span>ANTHROPIC_API_KEY <em>（官方付费 key, sk-ant-api01-...）</em></span>
             <input type="password" name="apiKey" autocomplete="off" placeholder="留空则用 Auth Token" />
-            <span class="hint" data-preview-for="apiKeyPreview"></span>
+            <span class="hint-row">
+              <span class="hint" data-preview-for="apiKeyPreview"></span>
+              <button type="button" class="clear-btn" data-clear="apiKey" hidden>清空</button>
+            </span>
           </label>
           <label>
             <span>ANTHROPIC_AUTH_TOKEN <em>（Bearer 风格 · 给 DeepSeek/OpenRouter/LiteLLM 这类代理）</em></span>
             <input type="password" name="authToken" autocomplete="off" placeholder="留空则用 API Key" />
-            <span class="hint" data-preview-for="authTokenPreview"></span>
+            <span class="hint-row">
+              <span class="hint" data-preview-for="authTokenPreview"></span>
+              <button type="button" class="clear-btn" data-clear="authToken" hidden>清空</button>
+            </span>
           </label>
         </fieldset>
 
         <fieldset>
           <legend>路由与模型</legend>
           <label>
-            <span>ANTHROPIC_BASE_URL</span>
+            <span>ANTHROPIC_BASE_URL <em>（OpenRouter 须用 .../v1/anthropic 后缀；DeepSeek 用 .../anthropic）</em></span>
             <input type="text" name="baseURL" placeholder="https://api.anthropic.com（默认）" />
+            <span class="hint">
+              常见值：
+              <code>https://openrouter.ai/api/v1/anthropic</code> ·
+              <code>https://api.deepseek.com/anthropic</code>
+            </span>
           </label>
           <label>
             <span>ANTHROPIC_MODEL</span>
             <input type="text" name="model" placeholder="claude-opus-4-7（SDK 默认）" />
+            <span class="hint">
+              OpenRouter 例：<code>anthropic/claude-sonnet-4.5</code>
+              · DeepSeek 例：<code>deepseek-v4-flash</code>
+            </span>
           </label>
         </fieldset>
 
@@ -89,7 +104,10 @@
           <label>
             <span>ELEVENLABS_API_KEY <em>（视频转写）</em></span>
             <input type="password" name="elevenlabsKey" autocomplete="off" placeholder="转写需要" />
-            <span class="hint" data-preview-for="elevenlabsKeyPreview"></span>
+            <span class="hint-row">
+              <span class="hint" data-preview-for="elevenlabsKeyPreview"></span>
+              <button type="button" class="clear-btn" data-clear="elevenlabsKey" hidden>清空</button>
+            </span>
           </label>
         </fieldset>
 

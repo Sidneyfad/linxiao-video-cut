@@ -369,6 +369,31 @@ function bindUI() {
     if (e.target.matches("[data-close]")) closeSettings();
   });
   settingsForm.addEventListener("submit", saveSettings);
+  settingsForm.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-clear]");
+    if (!btn) return;
+    e.preventDefault();
+    const field = btn.dataset.clear;
+    if (!confirm(`清空 ${field}？此项立即从服务端删除。`)) return;
+    settingsStatus.textContent = "清空中…";
+    settingsStatus.className = "";
+    try {
+      const r = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: "" }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const s = await r.json();
+      populateSettingsForm(s);
+      settingsStatus.textContent = `已清空 ${field}`;
+      settingsStatus.className = "ok";
+      setTimeout(() => { settingsStatus.textContent = ""; }, 3000);
+    } catch (err) {
+      settingsStatus.textContent = "清空失败：" + err.message;
+      settingsStatus.className = "err";
+    }
+  });
 }
 
 async function openSettings() {
@@ -401,9 +426,15 @@ function populateSettingsForm(s) {
       el.value = s[el.name] ?? "";
     }
   }
-  for (const hintEl of settingsForm.querySelectorAll(".hint")) {
+  for (const hintEl of settingsForm.querySelectorAll(".hint[data-preview-for]")) {
     const key = hintEl.dataset.previewFor;
     hintEl.textContent = s[key] ? "当前已设置：" + s[key] : "(未设置)";
+  }
+  // Show/hide [清空] button based on whether the field is currently set
+  for (const btn of settingsForm.querySelectorAll(".clear-btn")) {
+    const field = btn.dataset.clear;
+    const previewKey = field + "Preview";
+    btn.hidden = !s[previewKey];
   }
 }
 

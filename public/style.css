@@ -535,6 +535,34 @@ button { font: inherit; }
   color: var(--text-dim);
   font-family: var(--mono);
   min-height: 14px;
+  word-break: break-all;
+}
+.settings-form .hint code {
+  background: var(--bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-right: 4px;
+  font-size: 10.5px;
+}
+.settings-form .hint-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 18px;
+}
+.settings-form .hint-row .hint { flex: 1; }
+.settings-form .clear-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.settings-form .clear-btn:hover {
+  color: var(--bad);
+  border-color: var(--bad);
 }
 .settings-actions {
   display: flex; align-items: center; gap: 10px;

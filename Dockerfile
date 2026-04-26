@@ -3,7 +3,11 @@
 # Bundles Node 20 + ffmpeg + Python 3.12 + the video-use skill venv.
 # Render / Railway / Fly will all pick this up automatically.
 
-FROM node:20-bookworm-slim
+# Use full Debian (not -slim). The slim image triggers a libc misdetection
+# in the Claude Agent SDK that makes it look for a musl binary that npm
+# never installs (because we're glibc). Full Debian has the standard utility
+# set the SDK probes during binary resolution.
+FROM node:20-bookworm
 
 # System deps: ffmpeg for the editor, python for the skill helpers, build tools
 # for native Python packages, git for any optional clones the agent might do,
@@ -23,9 +27,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install Node deps first for better layer caching
+# Install Node deps. --include=optional explicitly fetches platform-specific
+# native packages even when host platform detection is iffy. We then also
+# defensively install BOTH glibc and musl Linux variants so the runtime can
+# always find a usable binary regardless of which one the SDK picks.
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --no-fund --no-audit
+RUN npm ci --omit=dev --include=optional --no-fund --no-audit \
+ && npm install --no-save --no-fund --no-audit \
+      @anthropic-ai/claude-agent-sdk-linux-x64@$(node -p "require('@anthropic-ai/claude-agent-sdk/package.json').version") \
+      @anthropic-ai/claude-agent-sdk-linux-x64-musl@$(node -p "require('@anthropic-ai/claude-agent-sdk/package.json').version") \
+      --force
 
 # Copy the rest of the app
 COPY . .

@@ -1,17 +1,13 @@
 # syntax=docker/dockerfile:1
 # Production image for the video-use web app.
-# Bundles Node 20 + ffmpeg + Python 3.12 + the video-use skill venv.
-# Render / Railway / Fly will all pick this up automatically.
+# Bundles Node 20 + ffmpeg + Python 3.12. Native agent calls the Anthropic
+# API directly via @anthropic-ai/sdk (pure HTTP) — no platform-specific
+# native binaries to wrangle. Slim base is fine again.
 
-# Use full Debian (not -slim). The slim image triggers a libc misdetection
-# in the Claude Agent SDK that makes it look for a musl binary that npm
-# never installs (because we're glibc). Full Debian has the standard utility
-# set the SDK probes during binary resolution.
-FROM node:20-bookworm
+FROM node:20-bookworm-slim
 
-# System deps: ffmpeg for the editor, python for the skill helpers, build tools
-# for native Python packages, git for any optional clones the agent might do,
-# and curl for healthchecks.
+# System deps: ffmpeg for editing, python for the skill helpers, build tools
+# for native Python packages, curl for healthchecks.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg \
       python3 \
@@ -20,23 +16,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       pkg-config \
       libsndfile1 \
-      git \
       curl \
       ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Install Node deps. --include=optional explicitly fetches platform-specific
-# native packages even when host platform detection is iffy. We then also
-# defensively install BOTH glibc and musl Linux variants so the runtime can
-# always find a usable binary regardless of which one the SDK picks.
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev --include=optional --no-fund --no-audit \
- && npm install --no-save --no-fund --no-audit \
-      @anthropic-ai/claude-agent-sdk-linux-x64@$(node -p "require('@anthropic-ai/claude-agent-sdk/package.json').version") \
-      @anthropic-ai/claude-agent-sdk-linux-x64-musl@$(node -p "require('@anthropic-ai/claude-agent-sdk/package.json').version") \
-      --force
+RUN npm ci --omit=dev --no-fund --no-audit
 
 # Copy the rest of the app
 COPY . .

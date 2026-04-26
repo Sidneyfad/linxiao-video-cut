@@ -108,6 +108,7 @@ async function switchSession(id) {
   lastFileSnapshot = { sources: new Map(), outputs: new Map() };
   renderFiles({ sources: [], outputs: [] });
   renderSessionList();
+  updateUploadVisibility();  // hide background-session uploads
   // Open new WS for this session — server will send `hello` with history + busy
   connectWs();
 }
@@ -917,30 +918,37 @@ function closeModal() {
 
 // ---------- Upload (chunked) ----------
 async function handleFiles(files) {
+  // Snapshot the active session at drop-time so chunks always go to the right
+  // session even if the user switches mid-upload.
+  const ownerSessionId = sessionId;
+  if (!ownerSessionId) {
+    alert("当前没有活跃会话");
+    return;
+  }
   for (const f of files) {
     if (f.size > 10 * 1024 * 1024 * 1024) {
       alert(`${f.name} 超过 10GB 上限`);
       continue;
     }
-    uploadOne(f).catch((e) => {
+    uploadOne(f, ownerSessionId).catch((e) => {
       console.error(e);
       alert(`上传失败: ${f.name}\n${e.message}`);
     });
   }
 }
 
-async function uploadOne(file) {
+async function uploadOne(file, ownerSessionId) {
   uploadProgress.hidden = false;
-  const item = renderUploadItem(file);
+  const item = renderUploadItem(file, ownerSessionId);
 
   const totalChunks = Math.max(1, Math.ceil(file.size / CHUNK_SIZE));
   const uploadId = crypto.randomUUID();
   const safeName = sanitizeFilename(file.name);
 
-  // Save to local folder first (parallel with upload). Failure is non-fatal —
-  // the server copy still works.
+  // Local mirror also uses the OWNER session, not whichever session happens to
+  // be active when this code runs.
   if (localFs.hasRoot()) {
-    localFs.writeFile(sessionId, safeName, file).catch((e) =>
+    localFs.writeFile(ownerSessionId, safeName, file).catch((e) =>
       console.warn("[local-fs] writeFile failed:", e)
     );
   }
@@ -954,7 +962,7 @@ async function uploadOne(file) {
     while (true) {
       try {
         const res = await fetch(
-          `/api/sessions/${sessionId}/upload/${encodeURIComponent(safeName)}`,
+          `/api/sessions/${ownerSessionId}/upload/${encodeURIComponent(safeName)}`,
           {
             method: "PUT",
             headers: {
@@ -983,9 +991,13 @@ async function uploadOne(file) {
   item.done();
 }
 
-function renderUploadItem(file) {
+function renderUploadItem(file, ownerSessionId) {
   const li = document.createElement("li");
   li.className = "upload-item";
+  li.dataset.sessionId = ownerSessionId;
+  // Hide if the upload's owner is not the currently active session — keeps
+  // the visual scoped to the session the file actually goes into.
+  if (ownerSessionId !== sessionId) li.style.display = "none";
   li.innerHTML = `
     <div class="name">
       <span></span>
@@ -1013,6 +1025,17 @@ function renderUploadItem(file) {
       li.querySelector(".pct").textContent = "失败 · " + msg;
     },
   };
+}
+
+// Re-scope the upload progress list to whatever session is now active.
+function updateUploadVisibility() {
+  let anyVisible = false;
+  for (const li of uploadList.children) {
+    const matches = li.dataset.sessionId === sessionId;
+    li.style.display = matches ? "" : "none";
+    if (matches) anyVisible = true;
+  }
+  uploadProgress.hidden = !anyVisible;
 }
 
 function sanitizeFilename(name) {

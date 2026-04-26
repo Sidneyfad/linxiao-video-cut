@@ -28,10 +28,21 @@ RUN npm ci --omit=dev --no-fund --no-audit
 # Copy the rest of the app
 COPY . .
 
-# Set up the video-use skill's Python venv
+# Set up the video-use skill's Python venv.
+#
+# --prefer-binary forces pip to use pre-built wheels and skip source compile,
+# which matters because librosa pulls in scipy (compiling from source on a
+# 0.1 vCPU container can take 10+ minutes and bust Render's build window).
+#
+# The whole step is wrapped in `|| true` so that if pip somehow can't fetch
+# wheels (rare network blip during build), we still ship a working server.
+# The agent's Bash tool can retry the install at runtime if needed.
 RUN python3 -m venv vendor/video-use/.venv \
- && vendor/video-use/.venv/bin/pip install --no-cache-dir --upgrade pip \
- && vendor/video-use/.venv/bin/pip install --no-cache-dir -e vendor/video-use
+ && vendor/video-use/.venv/bin/pip install --no-cache-dir --upgrade pip wheel setuptools \
+ && (vendor/video-use/.venv/bin/pip install --no-cache-dir --prefer-binary -e vendor/video-use \
+     || (echo '[WARN] Python venv install failed during build — agent can reinstall on first use' >&2 \
+         && rm -rf vendor/video-use/.venv \
+         && python3 -m venv vendor/video-use/.venv))
 
 # Persistent volume for sessions (Render mounts a disk to this path)
 RUN mkdir -p /data/sessions

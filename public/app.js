@@ -60,19 +60,76 @@ async function init() {
   await localFs.init();
   updateFolderBadge();
   localFs.onStateChange(updateFolderBadge);
+  // Restore settings from browser localStorage BEFORE connecting WS.
+  // Render free tier loses settings.json on every container restart, but
+  // the user's browser keeps them so we re-push on every page load.
+  await restoreSettingsFromLocalStorage();
   await refreshSessionList();
-  // Pick active session: stored choice, or most-recent, or create one.
+  // Pick active session: stored choice, or most-recent. Never auto-create.
   const stored = localStorage.getItem(ACTIVE_KEY);
   let target = stored && allSessions.find(s => s.id === stored)?.id;
   if (!target && allSessions.length) target = allSessions[0].id;
-  if (!target) {
-    const created = await createSession();
-    target = created.id;
+  if (target) {
+    await switchSession(target);
+  } else {
+    showNoSessionState();
   }
-  await switchSession(target);
 
   // Periodically refresh sidebar (busy state, lastActivity)
   setInterval(refreshSessionList, 5000);
+}
+
+const SETTINGS_LOCAL_KEY = "lvc.settings";
+
+async function restoreSettingsFromLocalStorage() {
+  let stored;
+  try { stored = JSON.parse(localStorage.getItem(SETTINGS_LOCAL_KEY) || "{}"); }
+  catch { return; }
+  if (!stored || typeof stored !== "object" || Object.keys(stored).length === 0) return;
+  try {
+    await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(stored),
+    });
+  } catch (e) {
+    console.warn("[settings] failed to restore from localStorage:", e);
+  }
+}
+
+function saveSettingsToLocalStorage(patch) {
+  if (!patch || typeof patch !== "object") return;
+  let existing;
+  try { existing = JSON.parse(localStorage.getItem(SETTINGS_LOCAL_KEY) || "{}"); }
+  catch { existing = {}; }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === "") delete existing[k];     // empty string = explicit clear
+    else existing[k] = v;
+  }
+  localStorage.setItem(SETTINGS_LOCAL_KEY, JSON.stringify(existing));
+}
+
+function showNoSessionState() {
+  sessionId = null;
+  ws && ws.close();
+  ws = null;
+  messagesEl.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "message system";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.innerHTML = `
+    <p>👈 点左侧 <strong>+ 新建会话</strong> 开始一次剪辑任务。</p>
+    <p class="hint">每个会话有独立的文件夹和对话历史，互不干扰。</p>
+  `;
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  activeTitleEl.textContent = "";
+  renderFiles({ sources: [], outputs: [] });
+  setBusy(false);
+  inputEl.disabled = true;
+  sendBtn.disabled = true;
+  setStatus("idle", "未选会话");
 }
 
 async function refreshSessionList() {
@@ -100,6 +157,8 @@ async function switchSession(id) {
   }
   sessionId = id;
   localStorage.setItem(ACTIVE_KEY, id);
+  // Re-enable input (was disabled in showNoSessionState)
+  inputEl.disabled = false;
   // Reset render state
   messagesEl.innerHTML = "";
   appendWelcomeMessage();
@@ -110,8 +169,7 @@ async function switchSession(id) {
   lastFileSnapshot = { sources: new Map(), outputs: new Map() };
   renderFiles({ sources: [], outputs: [] });
   renderSessionList();
-  updateUploadVisibility();  // hide background-session uploads
-  // Open new WS for this session — server will send `hello` with history + busy
+  updateUploadVisibility();
   connectWs();
 }
 
@@ -171,16 +229,14 @@ function renderSessionList() {
       e.stopPropagation();
       if (!confirm(`删除会话 "${s.title}" 及其所有文件？此操作不可撤销。`)) return;
       await fetch(`/api/sessions/${s.id}`, { method: "DELETE" });
-      // If active was deleted, fall through to most-recent
+      // If active was deleted, switch to next existing session, or show
+      // empty state. Do NOT auto-create — user is in control.
       if (s.id === sessionId) {
         sessionId = null;
         await refreshSessionList();
         const next = allSessions[0]?.id;
         if (next) await switchSession(next);
-        else {
-          const created = await createSession();
-          await switchSession(created.id);
-        }
+        else showNoSessionState();
       } else {
         refreshSessionList();
       }
@@ -411,9 +467,11 @@ function bindUI() {
     if (!btn) return;
     e.preventDefault();
     const field = btn.dataset.clear;
-    if (!confirm(`清空 ${field}？此项立即从服务端删除。`)) return;
+    if (!confirm(`清空 ${field}？此项会同时从服务端和浏览器本地删除。`)) return;
     settingsStatus.textContent = "清空中…";
     settingsStatus.className = "";
+    // Clear from localStorage too
+    saveSettingsToLocalStorage({ [field]: "" });
     try {
       const r = await fetch("/api/settings", {
         method: "PUT",
@@ -480,12 +538,12 @@ async function saveSettings(e) {
   const fd = new FormData(settingsForm);
   const patch = {};
   for (const [k, v] of fd.entries()) {
-    // Don't send empty password fields — that would clear the existing secret
-    // when the user just opened the modal to tweak something else. To clear,
-    // a user would need to type a literal space then save (we trim on server).
     if (settingsForm.elements[k].type === "password" && !v) continue;
     patch[k] = String(v);
   }
+  // Persist to localStorage too (canonical client-side store, survives Render
+  // restarts that wipe server's settings.json on free tier).
+  saveSettingsToLocalStorage(patch);
   settingsStatus.textContent = "保存中…";
   settingsStatus.className = "";
   try {
@@ -497,7 +555,7 @@ async function saveSettings(e) {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const s = await r.json();
     populateSettingsForm(s);
-    settingsStatus.textContent = "已保存。下次新建会话生效。";
+    settingsStatus.textContent = "已保存（同步到浏览器本地，下次新建会话生效）。";
     settingsStatus.className = "ok";
     setTimeout(() => { settingsStatus.textContent = ""; }, 4000);
   } catch (e) {

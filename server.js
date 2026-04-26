@@ -15,6 +15,7 @@ import express from "express";
 import cors from "cors";
 import http from "node:http";
 import path from "node:path";
+import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
@@ -195,6 +196,27 @@ app.post("/api/settings/test", async (_req, res) => {
       error: e.message,
     });
   }
+});
+
+// === Debug log dump ===
+// Returns the SDK's internal debug log, written to /tmp/sdk-debug.log.
+// Useful when an agent gets stuck and you need to see what the SDK is
+// doing internally (HTTP attempts, retry waits, payload sizes, etc).
+app.get("/api/debug-log", (req, res) => {
+  const p = "/tmp/sdk-debug.log";
+  if (!fs.existsSync(p)) {
+    res.status(404).send("(no debug log yet — send a message first)");
+    return;
+  }
+  const stat = fs.statSync(p);
+  // For very long logs, support `?tail=N` to return the last N bytes
+  const tail = parseInt(req.query.tail || "", 10);
+  const start = (Number.isFinite(tail) && tail > 0 && tail < stat.size)
+    ? stat.size - tail
+    : 0;
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  res.setHeader("Content-Disposition", "inline");
+  fs.createReadStream(p, { start }).pipe(res);
 });
 
 // === Health ===

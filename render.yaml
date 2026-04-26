@@ -1,25 +1,32 @@
 # Render.com one-click deploy.
-# Push to GitHub, connect repo at https://dashboard.render.com/select-repo,
-# Render auto-detects this file. Free plan works (sleeps 15 min after idle).
+#
+# Free plan: ephemeral storage. Sessions wipe on cold start (15min idle) and
+# every redeploy. Chat history and session list are LOST on restart. The app
+# still works — File System Access API in browser keeps source + output files
+# on the user's local machine permanently. For persistent server-side state
+# (sticky chat history), set `plan: starter` below ($7/mo, no sleep, gets disk).
 services:
   - type: web
     name: linxiao-video-cut
     runtime: docker
-    plan: free
+    plan: free          # ← change to `starter` if you want disk + no sleep
     region: singapore   # closest free region for CN team; change if you want
     autoDeploy: true
     healthCheckPath: /healthz
-    disk:
-      name: sessions
-      mountPath: /data
-      sizeGB: 1         # free plan limit
+    # NOTE: `disk:` removed because Render free tier no longer allows it.
+    # Add it back AND change plan to `starter` if you upgrade:
+    #   plan: starter
+    #   disk:
+    #     name: sessions
+    #     mountPath: /data
+    #     sizeGB: 5
     envVars:
       - key: PORT
         value: 3000
       - key: NODE_ENV
         value: production
       - key: SESSION_TTL_MS
-        value: 86400000   # 24h, then idle session files purged
+        value: 86400000   # 24h cleanup of in-container session files
       # The deployer fills these in the Render dashboard, not here, to keep
       # secrets out of git. The app starts without them but chat/transcribe
       # will fail until they are set; users can also fill them via the in-app

@@ -601,6 +601,16 @@ function handleAgentEvent(ev) {
     return;
   }
 
+  if (ev.type === "stderr") {
+    appendStderrLine(ev.line);
+    return;
+  }
+
+  if (ev.type === "agent_error") {
+    appendAgentError(ev);
+    return;
+  }
+
   if (ev.type === "assistant") {
     setBusy(true);
     handleAssistantMessage(ev);
@@ -608,7 +618,6 @@ function handleAgentEvent(ev) {
   }
 
   if (ev.type === "user") {
-    // User events from the SDK contain tool_results (wrapped as user messages).
     handleUserMessage(ev);
     return;
   }
@@ -616,11 +625,43 @@ function handleAgentEvent(ev) {
   if (ev.type === "result") {
     setBusy(false);
     if (ev.subtype !== "success") {
-      appendMessage("error", `任务结束（${ev.subtype || "error"}）${ev.api_error_status ? `· HTTP ${ev.api_error_status}` : ""}`);
+      const detail = ev.result ? `\n\n${ev.result}` : "";
+      appendMessage("error", `任务结束（${ev.subtype || "error"}）${ev.api_error_status ? ` · HTTP ${ev.api_error_status}` : ""}${detail}`);
     }
     currentAssistantBubble = null;
     return;
   }
+}
+
+function appendStderrLine(line) {
+  // Reuse the most recent stderr container when stderr lines arrive in bursts
+  let last = messagesEl.lastElementChild;
+  let pre;
+  if (last && last.classList?.contains("stderr-block")) {
+    pre = last.querySelector("pre");
+  } else {
+    const wrap = document.createElement("div");
+    wrap.className = "message stderr-block";
+    pre = document.createElement("pre");
+    pre.className = "stderr-pre";
+    wrap.appendChild(pre);
+    messagesEl.appendChild(wrap);
+  }
+  pre.textContent += line + "\n";
+  scrollMessagesToBottom();
+}
+
+function appendAgentError(ev) {
+  const wrap = document.createElement("div");
+  wrap.className = "message error";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  const tail = (ev.stderrTail || []).join("\n");
+  bubble.innerHTML = `<strong>模型 API 报错：${escapeHtml(ev.error)}</strong>` +
+    (tail ? `<pre style="margin-top:6px">${escapeHtml(tail)}</pre>` : "");
+  wrap.appendChild(bubble);
+  messagesEl.appendChild(wrap);
+  scrollMessagesToBottom();
 }
 
 function handleStreamEvent(ev) {

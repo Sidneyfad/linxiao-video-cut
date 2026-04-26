@@ -352,6 +352,23 @@ button { font: inherit; }
   margin: 4px 0;
 }
 
+/* SDK subprocess stderr — folded, dim, max-height */
+.stderr-block { display: block; }
+.stderr-pre {
+  background: rgba(255, 181, 71, 0.05);
+  border: 1px solid rgba(255, 181, 71, 0.25);
+  border-radius: 8px;
+  color: var(--warn);
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 8px 10px;
+  margin: 0;
+  max-height: 160px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* Composer */
 .composer {
   border-top: 1px solid var(--border);

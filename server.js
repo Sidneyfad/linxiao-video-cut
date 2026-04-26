@@ -32,10 +32,11 @@ import {
   appendHistory,
   readHistory,
   startCleanupSweep,
+  invalidateAllAgents,
 } from "./lib/sessions.js";
 import { handleChunkUpload, streamFile } from "./lib/upload.js";
 import { AgentSession } from "./lib/agent.js";
-import { getRedactedSettings, updateSettings, logBootSummary } from "./lib/settings.js";
+import { getRedactedSettings, updateSettings, logBootSummary, buildAgentEnvAndOptions } from "./lib/settings.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || "3000", 10);
@@ -129,9 +130,71 @@ app.get(/^\/api\/sessions\/([^/]+)\/file\/(.+)$/, (req, res) => {
 
 // === Settings (runtime-mutable) ===
 app.get("/api/settings", (_req, res) => res.json(getRedactedSettings()));
-app.put("/api/settings", (req, res) => {
+app.put("/api/settings", async (req, res) => {
   const next = updateSettings(req.body || {});
+  // Tear down running agents so the next message in any session uses the
+  // new settings. Without this, an agent started before the change keeps
+  // its stale env (auth/baseURL/model) for its entire lifetime.
+  const n = await invalidateAllAgents();
+  if (n > 0) console.log(`[settings] invalidated ${n} running agent(s) after settings change`);
   res.json(next);
+});
+
+// Hit the configured model with a 1-token ping so the user can see if their
+// auth + baseURL + model combo actually works. Bypasses the SDK so we get the
+// raw provider error if anything is wrong.
+app.post("/api/settings/test", async (_req, res) => {
+  const { env, opts } = buildAgentEnvAndOptions();
+  const baseURL = (env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+  const apiKey = env.ANTHROPIC_API_KEY;
+  const authToken = env.ANTHROPIC_AUTH_TOKEN;
+  const model = opts.model || env.ANTHROPIC_MODEL || "claude-haiku-4-5";
+
+  if (!apiKey && !authToken) {
+    return res.json({ ok: false, error: "未设置 ANTHROPIC_API_KEY 或 ANTHROPIC_AUTH_TOKEN（在 ⚙ 设置里填一个）" });
+  }
+
+  const headers = {
+    "anthropic-version": "2023-06-01",
+    "content-type": "application/json",
+  };
+  if (apiKey) headers["x-api-key"] = apiKey;
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
+
+  const url = `${baseURL}/v1/messages`;
+  const t0 = Date.now();
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        model,
+        max_tokens: 8,
+        messages: [{ role: "user", content: "ping" }],
+      }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const elapsed = Date.now() - t0;
+    const text = await r.text();
+    res.json({
+      ok: r.ok,
+      status: r.status,
+      url,
+      authMethod: apiKey ? "x-api-key" : "Bearer",
+      model,
+      elapsedMs: elapsed,
+      body: text.slice(0, 600),
+    });
+  } catch (e) {
+    res.json({
+      ok: false,
+      url,
+      authMethod: apiKey ? "x-api-key" : "Bearer",
+      model,
+      elapsedMs: Date.now() - t0,
+      error: e.message,
+    });
+  }
 });
 
 // === Health ===

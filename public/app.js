@@ -32,6 +32,7 @@ const settingsBtn = $("#settings-btn");
 const settingsModal = $("#settings-modal");
 const settingsForm = $("#settings-form");
 const settingsStatus = $("#settings-status");
+const testConnBtn = $("#test-conn-btn");
 const sessionsListEl = $("#sessions-list");
 const activeTitleEl = $("#active-title");
 const folderBtn = $("#folder-btn");
@@ -366,6 +367,41 @@ function bindUI() {
 
   // Settings
   settingsBtn.addEventListener("click", openSettings);
+  testConnBtn.addEventListener("click", async () => {
+    testConnBtn.disabled = true;
+    settingsStatus.className = "";
+    settingsStatus.textContent = "测试中（最多 20s）…";
+    try {
+      // Save form values first so the test uses what's in the inputs right
+      // now, not whatever was last persisted. Skip empty password fields.
+      const fd = new FormData(settingsForm);
+      const patch = {};
+      for (const [k, v] of fd.entries()) {
+        if (settingsForm.elements[k].type === "password" && !v) continue;
+        patch[k] = String(v);
+      }
+      await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const r = await fetch("/api/settings/test", { method: "POST" });
+      const j = await r.json();
+      if (j.ok) {
+        settingsStatus.textContent = `✓ 通了 · ${j.model} · ${j.elapsedMs}ms · 走 ${j.authMethod}`;
+        settingsStatus.className = "ok";
+      } else {
+        const detail = j.body || j.error || "(no body)";
+        settingsStatus.innerHTML = `✗ 失败 ${j.status ? "HTTP " + j.status : ""} · ${j.elapsedMs ?? "?"}ms<br><small style="opacity:.7">${escapeHtml(String(detail).slice(0, 300))}</small>`;
+        settingsStatus.className = "err";
+      }
+    } catch (e) {
+      settingsStatus.textContent = "✗ 测试请求失败：" + e.message;
+      settingsStatus.className = "err";
+    } finally {
+      testConnBtn.disabled = false;
+    }
+  });
   settingsModal.addEventListener("click", (e) => {
     if (e.target.matches("[data-close]")) closeSettings();
   });
